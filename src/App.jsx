@@ -15,7 +15,7 @@ import {
   Search, Plus, User, Hospital, Pill, Calendar, Phone, Trash2, 
   Printer, Edit3, HeartPulse, Stethoscope, Building2, LayoutDashboard,
   Users, Activity, Settings, Image as ImageIcon, Save, CheckCircle2,
-  ShieldAlert, ArrowUpRight, Award, MapPin, BarChart3
+  ShieldAlert, ArrowUpRight, Award, MapPin, BarChart3, FlaskConical, Bandage, Clock
 } from 'lucide-react';
 
 export default function App() {
@@ -28,8 +28,8 @@ export default function App() {
   const [filterLocation, setFilterLocation] = useState('All');
 
   // Reports view controls
-  const [reportPeriod, setReportPeriod] = useState('thisMonth');
-  const [reportFacility, setReportFacility] = useState('Hospital'); // default to selected mode
+  const [reportPeriod, setReportPeriod] = useState('thisMonth'); // thisWeek | lastWeek | thisMonth | thisYear | customMonth
+  const [reportFacility, setReportFacility] = useState('Hospital');
   const [customMonthValue, setCustomMonthValue] = useState(() => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -40,8 +40,11 @@ export default function App() {
     qualifications: 'DHMS',
     specialization: 'Homoeo Medicine Specialist / Family Physician',
     hospitalName: 'AYESHA FREE DISPENSARY (R)',
+    hospitalAddress: 'Sir Syed Town, Chaudhary Floor Mills Chowk, Faisalabad',
+    hospitalTiming: 'OPD MORNING 9 AM TO 1 PM',
     clinicName: 'HOMOEOPATHIC CENTER (R)',
     clinicAddress: 'Main Bazar Gulgasht Colony near Nusrat Fateh Ali Khan Hospital, Faisalabad',
+    clinicTiming: 'EVENING 6 PM TO 10 PM',
     contactNumber: '+92 333-8982371 / 0321-6606720',
     registrationNo: 'NCH#98863/PHC#17038/PHCL 2030917038',
     logoUrl: ''
@@ -60,10 +63,29 @@ export default function App() {
   const [visitDiagnosis, setVisitDiagnosis] = useState('');
   const [visitNotes, setVisitNotes] = useState('');
   const [visitDate, setVisitDate] = useState(new Date().toISOString().split('T')[0]);
+  const [bandageCount, setBandageCount] = useState(0);
+  const [testCount, setTestCount] = useState(0);
   const [vitals, setVitals] = useState({ bp: '', pulse: '', temp: '', weight: '', sugar: '' });
   const [medicines, setMedicines] = useState([
-    { name: '', dosage: '1-0-1', duration: '5 Days', instructions: 'After Meals' }
+    { name: '', dosage: '1-0-1', duration: '2 Days', instructions: 'After Meals' }
   ]);
+
+  const parseDaysFromDuration = (durStr) => {
+    if (!durStr) return 0;
+    const match = String(durStr).match(/\d+/);
+    return match ? parseInt(match[0], 10) : 0;
+  };
+
+  const calculatedMedicineDays = useMemo(() => {
+    const validMeds = medicines.filter(m => m.name && m.name.trim() !== '');
+    if (validMeds.length === 0) {
+      const fallback = parseDaysFromDuration(medicines[0]?.duration);
+      return fallback > 0 ? fallback : 2;
+    }
+    const days = validMeds.map(m => parseDaysFromDuration(m.duration));
+    const maxDays = Math.max(...days, 0);
+    return maxDays > 0 ? maxDays : 2;
+  }, [medicines]);
 
   useEffect(() => {
     const unsubscribe = onSnapshot(collection(db, 'patients'), (snapshot) => {
@@ -87,7 +109,10 @@ export default function App() {
   useEffect(() => {
     const unsubSettings = onSnapshot(doc(db, 'settings', 'doctor_profile'), (docSnap) => {
       if (docSnap.exists()) {
-        setDoctorProfile(docSnap.data());
+        setDoctorProfile(prev => ({
+          ...prev,
+          ...docSnap.data()
+        }));
       }
     });
     return () => unsubSettings();
@@ -129,7 +154,7 @@ export default function App() {
   const hospitalVisits = allVisits.filter(v => v.location === 'Hospital');
   const clinicVisits = allVisits.filter(v => v.location === 'Clinic');
 
-  // Reports data calculation
+  // Reports data calculation for Week, Month, Year, and Custom Range
   const reportData = useMemo(() => {
     const now = new Date();
     const mkDate = (y, m, d) => new Date(y, m, d);
@@ -152,6 +177,7 @@ export default function App() {
       start = mkDate(yy, mm - 1, 1);
       end = mkDate(yy, mm, 1);
     } else {
+      // thisMonth (default)
       start = mkDate(now.getFullYear(), now.getMonth(), 1);
       end = mkDate(now.getFullYear(), now.getMonth() + 1, 1);
     }
@@ -164,45 +190,73 @@ export default function App() {
     };
 
     const inRange = (d) => d && d >= start && d < end;
-    const periodVisitsAll = allVisits.filter(v => inRange(parseVisitDate(v.date)));
-    
-    // Strict isolation by facility
-    const periodVisits = reportFacility === 'All'
-      ? periodVisitsAll
-      : periodVisitsAll.filter(v => v.location === reportFacility);
-
-    // Group visits by date
-    const dateCounts = {};
-    periodVisits.forEach(v => {
-      if (v.date) {
-        dateCounts[v.date] = (dateCounts[v.date] || 0) + 1;
-      }
+    const periodVisits = allVisits.filter(v => {
+      const d = parseVisitDate(v.date);
+      const matchesRange = inRange(d);
+      const matchesFacility = reportFacility === 'All' ? true : v.location === reportFacility;
+      return matchesRange && matchesFacility;
     });
 
-    const dateSummary = Object.keys(dateCounts)
-      .sort()
-      .map(date => ({
-        date,
-        count: dateCounts[date]
-      }));
+    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-    // Split dateSummary into two equal parallel columns
-    const mid = Math.ceil(dateSummary.length / 2);
-    const colLeft = dateSummary.slice(0, mid);
-    const colRight = dateSummary.slice(mid);
+    const getVisitMedicineDays = (v) => {
+      if (v.medicineDays && Number(v.medicineDays) > 0) {
+        return Number(v.medicineDays);
+      }
+      if (v.medicines && Array.isArray(v.medicines) && v.medicines.length > 0) {
+        const daysArr = v.medicines.map(m => parseDaysFromDuration(m.duration));
+        const max = Math.max(...daysArr, 0);
+        if (max > 0) return max;
+      }
+      return 2;
+    };
 
-    // Line Chart Data Buckets
+    let totalPatientsCount = 0;
+    let totalBandagesCount = 0;
+    let totalMedicineDaysCount = 0;
+    let totalTestsCount = 0;
+
+    const daysCount = Math.round((end - start) / (1000 * 60 * 60 * 24));
+    const daysList = Array.from({ length: daysCount }, (_, i) => {
+      const dateObj = mkDate(start.getFullYear(), start.getMonth(), start.getDate() + i);
+      const dayOfWeekStr = dayNames[dateObj.getDay()];
+      const isFriday = dateObj.getDay() === 5;
+      
+      const yStr = dateObj.getFullYear();
+      const mStr = String(dateObj.getMonth() + 1).padStart(2, '0');
+      const dStr = String(dateObj.getDate()).padStart(2, '0');
+      const dateKey = `${yStr}-${mStr}-${dStr}`;
+      
+      const dayVisits = periodVisits.filter(v => v.date === dateKey);
+      const patientCount = dayVisits.length;
+      const bandages = dayVisits.reduce((sum, v) => sum + (Number(v.bandageCount) || 0), 0);
+      const medDays = isFriday ? 0 : dayVisits.reduce((sum, v) => sum + getVisitMedicineDays(v), 0);
+      const tests = dayVisits.reduce((sum, v) => sum + (Number(v.testCount) || 0), 0);
+
+      totalPatientsCount += isFriday ? 0 : patientCount;
+      totalBandagesCount += bandages;
+      totalMedicineDaysCount += medDays;
+      totalTestsCount += tests;
+
+      return {
+        dateStr: `${dStr}-${mStr}-${String(yStr).slice(-2)}`,
+        fullDate: dateKey,
+        dayOfWeek: dayOfWeekStr,
+        isFriday,
+        patientCount,
+        bandages,
+        medDays,
+        tests
+      };
+    });
+
+    // Buckets for dynamic Line Chart Trend
     let buckets = [];
     if (reportPeriod === 'thisWeek' || reportPeriod === 'lastWeek') {
       const labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
       buckets = labels.map((label, i) => {
-        const dayStart = mkDate(start.getFullYear(), start.getMonth(), start.getDate() + i);
-        const dayEnd = mkDate(dayStart.getFullYear(), dayStart.getMonth(), dayStart.getDate() + 1);
-        const value = periodVisits.filter(v => {
-          const d = parseVisitDate(v.date);
-          return d && d >= dayStart && d < dayEnd;
-        }).length;
-        return { label, value };
+        const item = daysList[i];
+        return { label, value: item ? item.patientCount : 0 };
       });
     } else if (reportPeriod === 'thisYear') {
       const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -214,15 +268,11 @@ export default function App() {
         return { label, value };
       });
     } else {
-      const daysInMonth = new Date(start.getFullYear(), start.getMonth() + 1, 0).getDate();
-      const numWeeks = Math.ceil(daysInMonth / 7);
+      const numWeeks = Math.ceil(daysList.length / 7);
       buckets = Array.from({ length: numWeeks }, (_, i) => {
-        const weekStartDay = i * 7 + 1;
-        const weekEndDay = Math.min(weekStartDay + 6, daysInMonth);
-        const value = periodVisits.filter(v => {
-          const d = parseVisitDate(v.date);
-          return d && d.getDate() >= weekStartDay && d.getDate() <= weekEndDay;
-        }).length;
+        const weekStart = i * 7;
+        const weekEnd = Math.min(weekStart + 7, daysList.length);
+        const value = daysList.slice(weekStart, weekEnd).reduce((sum, d) => sum + d.patientCount, 0);
         return { label: `Week ${i + 1}`, value };
       });
     }
@@ -231,28 +281,27 @@ export default function App() {
     const lastDay = mkDate(end.getFullYear(), end.getMonth(), end.getDate() - 1);
     const staticShortLabels = { thisWeek: 'This Week', lastWeek: 'Last Week', thisMonth: 'This Month', thisYear: 'This Year' };
     
-    let shortLabel, rangeLabel;
+    let displayTitle, rangeLabel;
     if (reportPeriod === 'thisWeek' || reportPeriod === 'lastWeek') {
-      shortLabel = staticShortLabels[reportPeriod];
+      displayTitle = staticShortLabels[reportPeriod].toUpperCase();
       rangeLabel = `${fmtDate(start)} – ${fmtDate(lastDay)}`;
     } else if (reportPeriod === 'thisYear') {
-      shortLabel = staticShortLabels[reportPeriod];
+      displayTitle = `YEAR: ${start.getFullYear()}`;
       rangeLabel = `${start.getFullYear()} (${fmtDate(start)} – ${fmtDate(lastDay)})`;
     } else {
       const monthName = start.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-      shortLabel = reportPeriod === 'customMonth'
-        ? start.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
-        : staticShortLabels.thisMonth;
+      displayTitle = `MONTH: ${monthName.toUpperCase()}`;
       rangeLabel = `${monthName} (${fmtDate(start)} – ${fmtDate(lastDay)})`;
     }
 
     return {
+      displayTitle,
       rangeLabel,
-      shortLabel,
-      totalVisitsCount: periodVisits.length,
-      dateSummary,
-      colLeft,
-      colRight,
+      daysList,
+      totalPatientsCount,
+      totalBandagesCount,
+      totalMedicineDaysCount,
+      totalTestsCount,
       buckets
     };
   }, [allVisits, reportPeriod, reportFacility, customMonthValue]);
@@ -311,7 +360,7 @@ export default function App() {
   };
 
   const addMedicineRow = () => {
-    setMedicines([...medicines, { name: '', dosage: '1-0-1', duration: '5 Days', instructions: 'After Meals' }]);
+    setMedicines([...medicines, { name: '', dosage: '1-0-1', duration: '2 Days', instructions: 'After Meals' }]);
   };
 
   const updateMedicine = (index, field, value) => {
@@ -336,6 +385,9 @@ export default function App() {
       diagnosis: visitDiagnosis,
       notes: visitNotes,
       vitals: vitals,
+      medicineDays: Number(calculatedMedicineDays) || 2,
+      bandageCount: Number(bandageCount) || 0,
+      testCount: Number(testCount) || 0,
       medicines: medicines.filter(m => m.name.trim() !== '')
     };
 
@@ -350,8 +402,10 @@ export default function App() {
       setShowAddVisitModal(false);
       setVisitDiagnosis('');
       setVisitNotes('');
+      setBandageCount(0);
+      setTestCount(0);
       setVitals({ bp: '', pulse: '', temp: '', weight: '', sugar: '' });
-      setMedicines([{ name: '', dosage: '1-0-1', duration: '5 Days', instructions: 'After Meals' }]);
+      setMedicines([{ name: '', dosage: '1-0-1', duration: '2 Days', instructions: 'After Meals' }]);
     } catch (err) {
       alert('Error saving visit: ' + err.message);
     }
@@ -377,7 +431,6 @@ export default function App() {
     }, 250);
   };
 
-  // Helper function to build SVG Line Path
   const buildSvgLine = (data, width, height, padX, padY) => {
     if (data.length <= 1) return { path: '', area: '', points: [] };
     const maxVal = Math.max(...data.map(d => d.value), 1);
@@ -396,17 +449,22 @@ export default function App() {
     return { path, area, points };
   };
 
-  const lineChartData = buildSvgLine(reportData.buckets, 780, 200, 45, 25);
+  const lineChartData = buildSvgLine(reportData.buckets, 780, 180, 45, 20);
+
+  // Active facility timing display
+  const activeTiming = reportFacility === 'Clinic' 
+    ? (doctorProfile.clinicTiming || 'EVENING 6 PM TO 10 PM')
+    : (doctorProfile.hospitalTiming || 'OPD MORNING 9 AM TO 1 PM');
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#f8fafc' }}>
       
-      {/* GLOBAL PRINT OVERRIDE STYLES */}
+      {/* GLOBAL PRINT STYLES */}
       <style>{`
         @media print {
           @page {
             size: A4 portrait;
-            margin: 8mm 10mm;
+            margin: 6mm 8mm;
           }
           html, body, #root, div {
             height: auto !important;
@@ -450,8 +508,15 @@ export default function App() {
               </div>
             )}
             <div>
-              <h1 style={{ fontSize: '17px', fontWeight: '800', color: '#0f172a' }}>{doctorProfile.clinicName || "Doctor's Portal"}</h1>
-              <p style={{ fontSize: '12px', color: '#64748b' }}>{doctorProfile.doctorName} • {doctorProfile.specialization}</p>
+              <h1 style={{ fontSize: '17px', fontWeight: '800', color: '#0f172a' }}>
+                {currentWorkplace === 'Hospital' ? doctorProfile.hospitalName : doctorProfile.clinicName}
+              </h1>
+              <p style={{ fontSize: '12px', color: '#64748b' }}>
+                {doctorProfile.doctorName} • {doctorProfile.specialization}
+                {' '}• <span style={{ color: '#2563eb', fontWeight: '600' }}>
+                  {currentWorkplace === 'Hospital' ? doctorProfile.hospitalTiming : doctorProfile.clinicTiming}
+                </span>
+              </p>
             </div>
           </div>
 
@@ -490,7 +555,7 @@ export default function App() {
                 boxShadow: currentView === 'reports' ? '0 1px 2px rgba(0,0,0,0.06)' : 'none'
               }}
             >
-              <BarChart3 size={15} /> Reports
+              <BarChart3 size={15} /> Reports & Register
             </button>
             <button
               onClick={() => setCurrentView('settings')}
@@ -536,11 +601,11 @@ export default function App() {
       {/* VIEW: CLINIC / DOCTOR SETTINGS */}
       {currentView === 'settings' && (
         <div className="no-print" style={{ flex: 1, overflowY: 'auto', padding: '32px' }}>
-          <div style={{ maxWidth: '800px', margin: '0 auto', background: '#fff', borderRadius: '16px', border: '1px solid #e2e8f0', padding: '28px' }}>
+          <div style={{ maxWidth: '820px', margin: '0 auto', background: '#fff', borderRadius: '16px', border: '1px solid #e2e8f0', padding: '28px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f1f5f9', paddingBottom: '16px', marginBottom: '20px' }}>
               <div>
-                <h2 style={{ fontSize: '20px', fontWeight: '800', color: '#0f172a' }}>Doctor & Clinic Profile Setup</h2>
-                <p style={{ fontSize: '13px', color: '#64748b' }}>Configure doctor details, credentials, clinic logo, and prescription header.</p>
+                <h2 style={{ fontSize: '20px', fontWeight: '800', color: '#0f172a' }}>Doctor & Facility Profile Setup</h2>
+                <p style={{ fontSize: '13px', color: '#64748b' }}>Configure separate timings and addresses for Hospital and Clinic sessions.</p>
               </div>
               {settingsSaved && (
                 <span style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#059669', fontWeight: '700', fontSize: '13px', background: '#dcfce7', padding: '6px 12px', borderRadius: '6px' }}>
@@ -559,8 +624,8 @@ export default function App() {
                   )}
                 </div>
                 <div>
-                  <label style={{ fontSize: '13px', fontWeight: '700', color: '#1e293b', display: 'block', marginBottom: '4px' }}>Upload Clinic / Hospital Logo</label>
-                  <p style={{ fontSize: '12px', color: '#64748b', marginBottom: '8px' }}>This logo will appear on all printed prescription slips (PNG/JPG, max 1MB).</p>
+                  <label style={{ fontSize: '13px', fontWeight: '700', color: '#1e293b', display: 'block', marginBottom: '4px' }}>Upload Center Logo</label>
+                  <p style={{ fontSize: '12px', color: '#64748b', marginBottom: '8px' }}>Shown on print headers and report letterheads.</p>
                   <input type="file" accept="image/*" onChange={handleLogoUpload} style={{ fontSize: '12px' }} />
                 </div>
               </div>
@@ -598,7 +663,7 @@ export default function App() {
                   />
                 </div>
                 <div>
-                  <label style={{ fontSize: '12px', fontWeight: '700', color: '#475569' }}>Medical Reg / License No.</label>
+                  <label style={{ fontSize: '12px', fontWeight: '700', color: '#475569' }}>Registration / License No.</label>
                   <input
                     type="text"
                     value={doctorProfile.registrationNo}
@@ -608,46 +673,90 @@ export default function App() {
                 </div>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
-                <div>
-                  <label style={{ fontSize: '12px', fontWeight: '700', color: '#475569' }}>Private Clinic Name</label>
-                  <input
-                    type="text"
-                    value={doctorProfile.clinicName}
-                    onChange={e => setDoctorProfile({ ...doctorProfile, clinicName: e.target.value })}
-                    style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #cbd5e1', marginTop: '4px' }}
-                  />
+              {/* HOSPITAL / DISPENSARY CONFIGURATION */}
+              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '14px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <h3 style={{ fontSize: '13px', fontWeight: '800', color: '#1e40af', display: 'flex', alignItems: 'center', gap: '6px', margin: 0 }}>
+                  <Hospital size={16} /> Hospital / Free Dispensary Settings
+                </h3>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                  <div>
+                    <label style={{ fontSize: '12px', fontWeight: '700', color: '#475569' }}>Hospital Name</label>
+                    <input
+                      type="text"
+                      value={doctorProfile.hospitalName}
+                      onChange={e => setDoctorProfile({ ...doctorProfile, hospitalName: e.target.value })}
+                      style={{ width: '100%', padding: '9px', borderRadius: '8px', border: '1px solid #cbd5e1', marginTop: '4px' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '12px', fontWeight: '700', color: '#475569' }}>Hospital OPD Timing</label>
+                    <input
+                      type="text"
+                      value={doctorProfile.hospitalTiming || 'OPD MORNING 9 AM TO 1 PM'}
+                      placeholder="e.g. OPD MORNING 9 AM TO 1 PM"
+                      onChange={e => setDoctorProfile({ ...doctorProfile, hospitalTiming: e.target.value })}
+                      style={{ width: '100%', padding: '9px', borderRadius: '8px', border: '1px solid #cbd5e1', marginTop: '4px' }}
+                    />
+                  </div>
                 </div>
                 <div>
-                  <label style={{ fontSize: '12px', fontWeight: '700', color: '#475569' }}>Hospital / Facility Name</label>
+                  <label style={{ fontSize: '12px', fontWeight: '700', color: '#475569' }}>Hospital Address</label>
                   <input
                     type="text"
-                    value={doctorProfile.hospitalName}
-                    onChange={e => setDoctorProfile({ ...doctorProfile, hospitalName: e.target.value })}
-                    style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #cbd5e1', marginTop: '4px' }}
+                    value={doctorProfile.hospitalAddress || ''}
+                    placeholder="e.g. Sir Syed Town, Chaudhary Floor Mills Chowk, Faisalabad"
+                    onChange={e => setDoctorProfile({ ...doctorProfile, hospitalAddress: e.target.value })}
+                    style={{ width: '100%', padding: '9px', borderRadius: '8px', border: '1px solid #cbd5e1', marginTop: '4px' }}
                   />
                 </div>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '14px' }}>
+              {/* CLINIC CONFIGURATION */}
+              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '14px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <h3 style={{ fontSize: '13px', fontWeight: '800', color: '#065f46', display: 'flex', alignItems: 'center', gap: '6px', margin: 0 }}>
+                  <Building2 size={16} /> Private Clinic Settings
+                </h3>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                  <div>
+                    <label style={{ fontSize: '12px', fontWeight: '700', color: '#475569' }}>Clinic Name</label>
+                    <input
+                      type="text"
+                      value={doctorProfile.clinicName}
+                      onChange={e => setDoctorProfile({ ...doctorProfile, clinicName: e.target.value })}
+                      style={{ width: '100%', padding: '9px', borderRadius: '8px', border: '1px solid #cbd5e1', marginTop: '4px' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '12px', fontWeight: '700', color: '#475569' }}>Clinic Evening Timing</label>
+                    <input
+                      type="text"
+                      value={doctorProfile.clinicTiming || 'EVENING 6 PM TO 10 PM'}
+                      placeholder="e.g. EVENING 6 PM TO 10 PM"
+                      onChange={e => setDoctorProfile({ ...doctorProfile, clinicTiming: e.target.value })}
+                      style={{ width: '100%', padding: '9px', borderRadius: '8px', border: '1px solid #cbd5e1', marginTop: '4px' }}
+                    />
+                  </div>
+                </div>
                 <div>
                   <label style={{ fontSize: '12px', fontWeight: '700', color: '#475569' }}>Clinic Address</label>
                   <input
                     type="text"
-                    value={doctorProfile.clinicAddress}
+                    value={doctorProfile.clinicAddress || ''}
+                    placeholder="e.g. Main Bazar Gulgasht Colony, Faisalabad"
                     onChange={e => setDoctorProfile({ ...doctorProfile, clinicAddress: e.target.value })}
-                    style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #cbd5e1', marginTop: '4px' }}
+                    style={{ width: '100%', padding: '9px', borderRadius: '8px', border: '1px solid #cbd5e1', marginTop: '4px' }}
                   />
                 </div>
-                <div>
-                  <label style={{ fontSize: '12px', fontWeight: '700', color: '#475569' }}>Contact / Appointment Phone</label>
-                  <input
-                    type="text"
-                    value={doctorProfile.contactNumber}
-                    onChange={e => setDoctorProfile({ ...doctorProfile, contactNumber: e.target.value })}
-                    style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #cbd5e1', marginTop: '4px' }}
-                  />
-                </div>
+              </div>
+
+              <div>
+                <label style={{ fontSize: '12px', fontWeight: '700', color: '#475569' }}>Contact / Appointment Phone</label>
+                <input
+                  type="text"
+                  value={doctorProfile.contactNumber}
+                  onChange={e => setDoctorProfile({ ...doctorProfile, contactNumber: e.target.value })}
+                  style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #cbd5e1', marginTop: '4px' }}
+                />
               </div>
 
               <button
@@ -655,31 +764,32 @@ export default function App() {
                 style={{
                   background: '#2563eb', color: '#fff', padding: '12px', borderRadius: '8px', border: 'none',
                   fontWeight: '700', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  gap: '8px', marginTop: '10px', boxShadow: '0 2px 4px rgba(37,99,235,0.2)'
+                  gap: '8px', marginTop: '6px', boxShadow: '0 2px 4px rgba(37,99,235,0.2)'
                 }}
               >
-                <Save size={18} /> Save & Apply
+                <Save size={18} /> Save Settings
               </button>
             </form>
           </div>
         </div>
       )}
 
-      {/* VIEW: REPORTS & ANALYTICS */}
+      {/* VIEW: REPORTS & OFFICIAL REGISTER SHEET */}
       {currentView === 'reports' && (
         <div style={{ flex: 1, overflowY: 'auto', padding: '28px' }}>
-          <div style={{ maxWidth: '1180px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '22px' }}>
+          <div style={{ maxWidth: '1180px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '20px' }}>
 
-            {/* Top Controls & Print Action */}
+            {/* Top Controls & Print */}
             <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
               <div>
-                <h2 style={{ fontSize: '22px', fontWeight: '800', color: '#0f172a' }}>Reports & Analytics</h2>
+                <h2 style={{ fontSize: '22px', fontWeight: '800', color: '#0f172a' }}>Official Register & Reports</h2>
                 <p style={{ fontSize: '13px', color: '#64748b' }}>
-                  Showing: <strong style={{ color: '#0f172a' }}>{reportData.rangeLabel}</strong> • Facility: <strong style={{ color: '#0f172a' }}>{reportFacility}</strong>
+                  Register sheet for <strong>{reportData.displayTitle}</strong> • Facility: <strong>{reportFacility}</strong>
                 </p>
               </div>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                {/* Facility Selector */}
                 <div style={{ display: 'flex', background: '#f1f5f9', padding: '4px', borderRadius: '8px', gap: '4px' }}>
                   {['Hospital', 'Clinic', 'All'].map(loc => (
                     <button
@@ -697,10 +807,11 @@ export default function App() {
                   ))}
                 </div>
 
+                {/* Restored Complete Timeframe Selector */}
                 <select
                   value={reportPeriod}
                   onChange={(e) => setReportPeriod(e.target.value)}
-                  style={{ padding: '9px 14px', borderRadius: '8px', border: '1px solid #cbd5e1', fontWeight: '700', fontSize: '13px', color: '#1e293b', background: '#fff', cursor: 'pointer' }}
+                  style={{ padding: '8px 12px', borderRadius: '8px', border: '1px solid #cbd5e1', fontWeight: '700', fontSize: '13px', color: '#1e293b', background: '#fff', cursor: 'pointer' }}
                 >
                   <option value="thisWeek">This Week</option>
                   <option value="lastWeek">Last Week</option>
@@ -715,11 +826,10 @@ export default function App() {
                     value={customMonthValue}
                     onChange={(e) => setCustomMonthValue(e.target.value)}
                     max={`${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`}
-                    style={{ padding: '9px 14px', borderRadius: '8px', border: '1px solid #cbd5e1', fontWeight: '700', fontSize: '13px', color: '#1e293b', background: '#fff', cursor: 'pointer' }}
+                    style={{ padding: '8px 12px', borderRadius: '8px', border: '1px solid #cbd5e1', fontWeight: '700', fontSize: '13px', color: '#1e293b', background: '#fff', cursor: 'pointer' }}
                   />
                 )}
 
-                {/* Print Button at top */}
                 <button
                   onClick={handlePrintReport}
                   style={{
@@ -728,230 +838,197 @@ export default function App() {
                     boxShadow: '0 2px 4px rgba(37,99,235,0.2)'
                   }}
                 >
-                  <Printer size={16} /> Print Report
+                  <Printer size={16} /> Print Register Sheet
                 </button>
               </div>
             </div>
 
-            {/* SCREEN ONLY: Strict Metric Cards */}
-            <div className="no-print" style={{ display: 'grid', gridTemplateColumns: reportFacility === 'All' ? 'repeat(3, 1fr)' : 'repeat(2, 1fr)', gap: '16px' }}>
-              {reportFacility !== 'Clinic' && (
-                <div style={{ background: '#fff', padding: '18px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', color: '#64748b', marginBottom: '6px' }}>
-                    <span style={{ fontSize: '13px', fontWeight: '600' }}>Hospital Encounters</span>
-                    <Hospital size={18} color="#1d4ed8" />
-                  </div>
-                  <h3 style={{ fontSize: '26px', fontWeight: '800', color: '#0f172a' }}>
-                    {reportFacility === 'Hospital' ? reportData.totalVisitsCount : allVisits.filter(v => v.location === 'Hospital').length}
-                  </h3>
-                  <span style={{ fontSize: '11px', color: '#64748b' }}>{doctorProfile.hospitalName}</span>
-                </div>
-              )}
-
-              {reportFacility !== 'Hospital' && (
-                <div style={{ background: '#fff', padding: '18px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', color: '#64748b', marginBottom: '6px' }}>
-                    <span style={{ fontSize: '13px', fontWeight: '600' }}>Clinic Encounters</span>
-                    <Building2 size={18} color="#d97706" />
-                  </div>
-                  <h3 style={{ fontSize: '26px', fontWeight: '800', color: '#0f172a' }}>
-                    {reportFacility === 'Clinic' ? reportData.totalVisitsCount : allVisits.filter(v => v.location === 'Clinic').length}
-                  </h3>
-                  <span style={{ fontSize: '11px', color: '#64748b' }}>{doctorProfile.clinicName}</span>
-                </div>
-              )}
-
-              <div style={{ background: '#fff', padding: '18px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', color: '#64748b', marginBottom: '6px' }}>
-                  <span style={{ fontSize: '13px', fontWeight: '600' }}>Total Consultations</span>
-                  <Activity size={18} color="#059669" />
-                </div>
-                <h3 style={{ fontSize: '26px', fontWeight: '800', color: '#0f172a' }}>{reportData.totalVisitsCount}</h3>
-                <span style={{ fontSize: '11px', color: '#059669', fontWeight: '700' }}>In selected range</span>
+            {/* SCREEN ONLY: Summary Metric Cards */}
+            <div className="no-print" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
+              <div style={{ background: '#fff', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                <span style={{ fontSize: '12px', color: '#64748b', fontWeight: '600' }}>Total Patients</span>
+                <h3 style={{ fontSize: '26px', fontWeight: '800', color: '#0f172a', marginTop: '4px' }}>{reportData.totalPatientsCount}</h3>
+                <span style={{ fontSize: '11px', color: '#2563eb' }}>{reportData.rangeLabel}</span>
+              </div>
+              <div style={{ background: '#fff', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                <span style={{ fontSize: '12px', color: '#64748b', fontWeight: '600' }}>Medicine Days Prescribed</span>
+                <h3 style={{ fontSize: '26px', fontWeight: '800', color: '#059669', marginTop: '4px' }}>{reportData.totalMedicineDaysCount}</h3>
+                <span style={{ fontSize: '11px', color: '#059669' }}>Auto-detected & Calculated</span>
+              </div>
+              <div style={{ background: '#fff', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                <span style={{ fontSize: '12px', color: '#64748b', fontWeight: '600' }}>Bandages Applied</span>
+                <h3 style={{ fontSize: '26px', fontWeight: '800', color: '#d97706', marginTop: '4px' }}>{reportData.totalBandagesCount}</h3>
+                <span style={{ fontSize: '11px', color: '#64748b' }}>Procedures</span>
+              </div>
+              <div style={{ background: '#fff', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                <span style={{ fontSize: '12px', color: '#64748b', fontWeight: '600' }}>Analyzer Tests Conducted</span>
+                <h3 style={{ fontSize: '26px', fontWeight: '800', color: '#7c3aed', marginTop: '4px' }}>{reportData.totalTestsCount}</h3>
+                <span style={{ fontSize: '11px', color: '#64748b' }}>Labs performed</span>
               </div>
             </div>
 
-            {/* SCREEN ONLY: Smooth Interactive SVG Line Graph */}
-            <div className="no-print" style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '22px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-                <div>
-                  <h3 style={{ fontSize: '16px', fontWeight: '800', color: '#0f172a' }}>
-                    Consultation Volume Trend ({reportFacility})
-                  </h3>
-                  <p style={{ fontSize: '12px', color: '#64748b' }}>Line chart visualization across {reportData.shortLabel}</p>
-                </div>
-                <span style={{ fontSize: '13px', fontWeight: '700', color: '#2563eb', background: '#eff6ff', padding: '4px 10px', borderRadius: '6px' }}>
-                  {reportData.totalVisitsCount} Total Visits
-                </span>
-              </div>
-
-              {reportData.buckets.every(b => b.value === 0) ? (
-                <div style={{ textAlign: 'center', padding: '40px 0', color: '#94a3b8', fontSize: '13px' }}>
-                  No consultations recorded for {reportFacility} in this period.
-                </div>
-              ) : (
-                <div style={{ width: '100%', overflowX: 'auto' }}>
-                  <svg viewBox="0 0 780 200" style={{ width: '100%', height: '200px', overflow: 'visible' }}>
-                    <defs>
-                      <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#2563eb" stopOpacity="0.25" />
-                        <stop offset="100%" stopColor="#2563eb" stopOpacity="0.0" />
-                      </linearGradient>
-                    </defs>
-
-                    {[0.25, 0.5, 0.75, 1].map((ratio, idx) => (
-                      <line
-                        key={idx}
-                        x1="45"
-                        y1={200 - 25 - ratio * 150}
-                        x2="735"
-                        y2={200 - 25 - ratio * 150}
-                        stroke="#f1f5f9"
-                        strokeWidth="1"
-                      />
-                    ))}
-
-                    {lineChartData.area && (
-                      <path d={lineChartData.area} fill="url(#chartGradient)" />
-                    )}
-
-                    {lineChartData.path && (
-                      <path d={lineChartData.path} fill="none" stroke="#2563eb" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-                    )}
-
-                    {lineChartData.points.map((pt, i) => (
-                      <g key={i}>
-                        <circle cx={pt.x} cy={pt.y} r="5" fill="#ffffff" stroke="#2563eb" strokeWidth="3" />
-                        <text x={pt.x} y={pt.y - 10} textAnchor="middle" fontSize="11" fontWeight="700" fill="#1e293b">
-                          {pt.value}
-                        </text>
-                        <text x={pt.x} y={200 - 6} textAnchor="middle" fontSize="11" fill="#64748b">
-                          {pt.label}
-                        </text>
-                      </g>
-                    ))}
-                  </svg>
-                </div>
-              )}
+            {/* SCREEN ONLY: Volume Trend Graph */}
+            <div className="no-print" style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px' }}>
+              <h3 style={{ fontSize: '15px', fontWeight: '800', color: '#0f172a', marginBottom: '12px' }}>
+                Patient Inflow Trend — {reportData.displayTitle} ({reportFacility})
+              </h3>
+              <svg viewBox="0 0 780 180" style={{ width: '100%', height: '180px' }}>
+                <defs>
+                  <linearGradient id="chartGradient2" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#2563eb" stopOpacity="0.25" />
+                    <stop offset="100%" stopColor="#2563eb" stopOpacity="0.0" />
+                  </linearGradient>
+                </defs>
+                {lineChartData.area && <path d={lineChartData.area} fill="url(#chartGradient2)" />}
+                {lineChartData.path && <path d={lineChartData.path} fill="none" stroke="#2563eb" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />}
+                {lineChartData.points.map((pt, i) => (
+                  <g key={i}>
+                    <circle cx={pt.x} cy={pt.y} r="5" fill="#ffffff" stroke="#2563eb" strokeWidth="3" />
+                    <text x={pt.x} y={pt.y - 8} textAnchor="middle" fontSize="11" fontWeight="700" fill="#1e293b">{pt.value}</text>
+                    <text x={pt.x} y={180 - 4} textAnchor="middle" fontSize="11" fill="#64748b">{pt.label}</text>
+                  </g>
+                ))}
+              </svg>
             </div>
 
-            {/* PRINT ONLY: Professional Letterhead */}
-            <div className="print-only" style={{ paddingBottom: '8px', fontFamily: 'Arial, sans-serif' }}>
+            {/* ------------------------------------------------------------- */}
+            {/* OFFICIAL REGISTER SHEET WITH LETTERHEAD (SCREEN & PRINT)      */}
+            {/* ------------------------------------------------------------- */}
+            <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #cbd5e1', padding: '20px' }}>
+              
+              {/* Top Letterhead Header */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '2.5px solid #1e3a8a', paddingBottom: '12px', marginBottom: '12px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
                   {doctorProfile.logoUrl && (
-                    <img src={doctorProfile.logoUrl} alt="Clinic Logo" style={{ width: '56px', height: '56px', objectFit: 'contain' }} />
+                    <img src={doctorProfile.logoUrl} alt="Logo" style={{ width: '56px', height: '56px', objectFit: 'contain' }} />
                   )}
                   <div>
-                    <h1 style={{ fontSize: '18px', fontWeight: '800', color: '#1e3a8a', margin: 0 }}>{doctorProfile.doctorName}</h1>
-                    <p style={{ fontSize: '11px', fontWeight: 'bold', margin: '2px 0', color: '#334155' }}>{doctorProfile.qualifications}</p>
-                    <p style={{ fontSize: '10px', margin: 0, color: '#475569' }}>{doctorProfile.specialization} • Reg #{doctorProfile.registrationNo}</p>
+                    <h1 style={{ fontSize: '20px', fontWeight: '800', color: '#1e3a8a', margin: 0 }}>
+                      {doctorProfile.doctorName}
+                    </h1>
+                    <p style={{ fontSize: '12px', fontWeight: 'bold', margin: '2px 0', color: '#334155' }}>
+                      {doctorProfile.qualifications} • {doctorProfile.specialization}
+                    </p>
+                    <p style={{ fontSize: '11px', margin: 0, color: '#64748b' }}>
+                      Reg #{doctorProfile.registrationNo}
+                    </p>
                   </div>
                 </div>
-                <div style={{ textAlign: 'right', fontSize: '10px', color: '#334155' }}>
-                  <h3 style={{ fontSize: '13px', fontWeight: 'bold', margin: '0 0 2px', color: '#1e3a8a' }}>
-                    {reportFacility === 'Hospital'
-                      ? doctorProfile.hospitalName
-                      : reportFacility === 'Clinic'
-                        ? doctorProfile.clinicName
-                        : `${doctorProfile.clinicName} & ${doctorProfile.hospitalName}`}
+
+                <div style={{ textAlign: 'right', fontSize: '11px', color: '#334155' }}>
+                  <h3 style={{ fontSize: '14px', fontWeight: 'bold', margin: '0 0 2px', color: '#1e3a8a' }}>
+                    {reportFacility === 'Clinic' ? doctorProfile.clinicName : doctorProfile.hospitalName}
                   </h3>
-                  <p style={{ margin: '1px 0' }}>{doctorProfile.clinicAddress}</p>
+                  <p style={{ margin: '1px 0', maxWidth: '340px' }}>
+                    {reportFacility === 'Clinic' ? doctorProfile.clinicAddress : doctorProfile.hospitalAddress || doctorProfile.clinicAddress}
+                  </p>
                   <p style={{ margin: '1px 0' }}><strong>Tel:</strong> {doctorProfile.contactNumber}</p>
                 </div>
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #cbd5e1', paddingBottom: '8px', marginBottom: '14px' }}>
-                <div>
-                  <h2 style={{ fontSize: '15px', fontWeight: '800', color: '#0f172a', margin: '0 0 2px' }}>
-                    {reportFacility === 'Hospital' ? 'Hospital Consultation Report' : reportFacility === 'Clinic' ? 'Clinic Consultation Report' : 'Consolidated Consultation Report'}
-                  </h2>
-                  <p style={{ fontSize: '11px', color: '#475569', margin: 0 }}>
-                    <strong>Period:</strong> {reportData.rangeLabel} &nbsp;|&nbsp; <strong>Facility:</strong> {reportFacility}
-                  </p>
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                  <span style={{ fontSize: '14px', fontWeight: '800', color: '#1e3a8a' }}>
-                    Total Patients Seen: {reportData.totalVisitsCount}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* 2 PARALLEL TABLES: All 31 rows fit perfectly on one single sheet */}
-            <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '18px' }}>
-              <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                <h3 style={{ fontSize: '15px', fontWeight: '800', color: '#0f172a' }}>
-                  Daily Consultation Summary — Parallel Layout ({reportFacility})
-                </h3>
-                <span style={{ fontSize: '12px', color: '#64748b' }}>Compact Dual-Column View</span>
+              {/* Sub-strip: Dynamic Timing & Title */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', padding: '6px 10px', border: '1px solid #e2e8f0', marginBottom: '10px' }}>
+                <span style={{ fontSize: '13px', fontWeight: '800', color: '#1e3a8a' }}>
+                  {reportData.displayTitle}
+                </span>
+                <span style={{ fontSize: '12px', fontWeight: '800', color: '#0f172a', letterSpacing: '0.5px' }}>
+                  {activeTiming}
+                </span>
+                <span style={{ fontSize: '12px', fontWeight: '700', color: '#475569' }}>
+                  FACILITY: {reportFacility.toUpperCase()}
+                </span>
               </div>
 
-              {reportData.dateSummary.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '30px 0', color: '#94a3b8', fontSize: '13px' }}>
-                  No visit records available for this period.
-                </div>
-              ) : (
-                <div>
-                  <div style={{ display: 'flex', gap: '20px', alignItems: 'flex-start' }}>
-                    
-                    {/* Left Column Table */}
-                    <div style={{ flex: 1 }}>
-                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11.5px', textAlign: 'left' }}>
-                        <thead>
-                          <tr style={{ background: '#f8fafc', borderBottom: '2px solid #cbd5e1', color: '#334155' }}>
-                            <th style={{ padding: '6px 8px', width: '45px', fontWeight: '800' }}>Sr.</th>
-                            <th style={{ padding: '6px 8px', fontWeight: '800' }}>Date</th>
-                            <th style={{ padding: '6px 8px', textAlign: 'right', fontWeight: '800' }}>Patients</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {reportData.colLeft.map((row, index) => (
-                            <tr key={index} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                              <td style={{ padding: '5px 8px', color: '#64748b', fontWeight: '700' }}>{index + 1}</td>
-                              <td style={{ padding: '5px 8px', color: '#0f172a', fontWeight: '600' }}>{row.date}</td>
-                              <td style={{ padding: '5px 8px', textAlign: 'right', fontWeight: '800', color: '#2563eb' }}>{row.count}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+              {/* Exact Register Columns Table */}
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px', textAlign: 'center', border: '1.5px solid #000' }}>
+                <thead>
+                  <tr style={{ background: '#f1f5f9', borderBottom: '1.5px solid #000' }}>
+                    <th style={{ borderRight: '1px solid #000', padding: '6px 4px', width: '85px' }}>Date</th>
+                    <th style={{ borderRight: '1px solid #000', padding: '6px 4px', width: '100px' }}>Day</th>
+                    <th style={{ borderRight: '1px solid #000', padding: '6px 4px', width: '100px' }}>Total Patient</th>
+                    <th style={{ borderRight: '1px solid #000', padding: '6px 4px', width: '90px' }}>Bandage</th>
+                    <th style={{ borderRight: '1px solid #000', padding: '6px 4px', width: '110px' }}>Medicine Days</th>
+                    <th style={{ borderRight: '1px solid #000', padding: '6px 4px', width: '100px' }}>Analyzer / Test</th>
+                    <th style={{ padding: '6px 4px', width: '110px' }}>Total Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {reportData.daysList.map((row, idx) => (
+                    <tr key={idx} style={{
+                      borderBottom: '1px solid #94a3b8',
+                      background: row.isFriday ? '#f8fafc' : 'transparent',
+                      height: '20px'
+                    }}>
+                      {/* Date */}
+                      <td style={{ borderRight: '1px solid #000', padding: '2px 4px', fontWeight: '600' }}>
+                        {row.dateStr}
+                      </td>
 
-                    {/* Right Column Table */}
-                    <div style={{ flex: 1 }}>
-                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11.5px', textAlign: 'left' }}>
-                        <thead>
-                          <tr style={{ background: '#f8fafc', borderBottom: '2px solid #cbd5e1', color: '#334155' }}>
-                            <th style={{ padding: '6px 8px', width: '45px', fontWeight: '800' }}>Sr.</th>
-                            <th style={{ padding: '6px 8px', fontWeight: '800' }}>Date</th>
-                            <th style={{ padding: '6px 8px', textAlign: 'right', fontWeight: '800' }}>Patients</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {reportData.colRight.map((row, index) => (
-                            <tr key={index} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                              <td style={{ padding: '5px 8px', color: '#64748b', fontWeight: '700' }}>{reportData.colLeft.length + index + 1}</td>
-                              <td style={{ padding: '5px 8px', color: '#0f172a', fontWeight: '600' }}>{row.date}</td>
-                              <td style={{ padding: '5px 8px', textAlign: 'right', fontWeight: '800', color: '#2563eb' }}>{row.count}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+                      {/* Day */}
+                      <td style={{ borderRight: '1px solid #000', padding: '2px 4px', fontWeight: row.isFriday ? '800' : '500' }}>
+                        {row.dayOfWeek}
+                      </td>
 
-                  </div>
+                      {/* If Friday -> span "Weekly Off" */}
+                      {row.isFriday ? (
+                        <>
+                          <td style={{ borderRight: '1px solid #000', padding: '2px 4px', fontStyle: 'italic', fontWeight: 'bold', letterSpacing: '2px' }} colSpan={2}>
+                            Weekly
+                          </td>
+                          <td style={{ borderRight: '1px solid #000', padding: '2px 4px', fontStyle: 'italic', fontWeight: 'bold', letterSpacing: '2px' }} colSpan={2}>
+                            Off
+                          </td>
+                          <td style={{ padding: '2px 4px' }}>—</td>
+                        </>
+                      ) : (
+                        <>
+                          <td style={{ borderRight: '1px solid #000', padding: '2px 4px', fontWeight: '800' }}>
+                            {row.patientCount > 0 ? String(row.patientCount).padStart(2, '0') : '—'}
+                          </td>
+                          <td style={{ borderRight: '1px solid #000', padding: '2px 4px' }}>
+                            {row.bandages > 0 ? String(row.bandages).padStart(2, '0') : ''}
+                          </td>
+                          <td style={{ borderRight: '1px solid #000', padding: '2px 4px', fontWeight: '600' }}>
+                            {row.medDays > 0 ? String(row.medDays).padStart(2, '0') : ''}
+                          </td>
+                          <td style={{ borderRight: '1px solid #000', padding: '2px 4px' }}>
+                            {row.tests > 0 ? String(row.tests).padStart(2, '0') : ''}
+                          </td>
+                          <td style={{ padding: '2px 4px' }}>
+                            {/* Blank for handwriting */}
+                          </td>
+                        </>
+                      )}
+                    </tr>
+                  ))}
 
-                  {/* Combined Bottom Summary Bar */}
-                  <div style={{ borderTop: '2px solid #cbd5e1', marginTop: '12px', paddingTop: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: '13px', fontWeight: '800', color: '#0f172a' }}>
-                      Grand Total Patients Seen:
-                    </span>
-                    <span style={{ fontSize: '16px', fontWeight: '800', color: '#1e3a8a' }}>
-                      {reportData.totalVisitsCount}
-                    </span>
-                  </div>
-                </div>
-              )}
+                  {/* BOTTOM TOTAL SUMMARY ROW */}
+                  <tr style={{ borderTop: '2px solid #000', fontWeight: '900', background: '#f1f5f9', height: '28px', fontSize: '12px' }}>
+                    <td style={{ borderRight: '1px solid #000', padding: '4px' }} colSpan={2}>
+                      TOTAL
+                    </td>
+                    <td style={{ borderRight: '1px solid #000', padding: '4px', fontSize: '13px' }}>
+                      {reportData.totalPatientsCount} —
+                    </td>
+                    <td style={{ borderRight: '1px solid #000', padding: '4px', fontSize: '13px' }}>
+                      {reportData.totalBandagesCount} —
+                    </td>
+                    <td style={{ borderRight: '1px solid #000', padding: '4px', fontSize: '13px' }}>
+                      {reportData.totalMedicineDaysCount} —
+                    </td>
+                    <td style={{ borderRight: '1px solid #000', padding: '4px', fontSize: '13px' }}>
+                      {reportData.totalTestsCount} —
+                    </td>
+                    <td style={{ padding: '4px' }}></td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <div style={{ marginTop: '12px', display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: '#64748b' }}>
+                <span>Official OPD Register Sheet • Generated via Doctor's Record System</span>
+                <span>Authorized Signature: __________________________</span>
+              </div>
+
             </div>
 
           </div>
@@ -1065,6 +1142,11 @@ export default function App() {
                             </span>
                           </div>
                           <p style={{ fontSize: '13px', color: '#475569', marginTop: '2px' }}><strong>Diagnosis:</strong> {visit.diagnosis}</p>
+                          <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px', display: 'flex', gap: '10px' }}>
+                            <span>💊 Meds: {visit.medicineDays || 2} Days</span>
+                            {visit.bandageCount > 0 && <span>🩹 Bandage: {visit.bandageCount}</span>}
+                            {visit.testCount > 0 && <span>🧪 Tests: {visit.testCount}</span>}
+                          </div>
                         </div>
                         <div style={{ textAlign: 'right', fontSize: '12px', color: '#64748b' }}>
                           <div>{visit.date}</div>
@@ -1303,6 +1385,13 @@ export default function App() {
                           <div style={{ marginBottom: '14px' }}>
                             <h4 style={{ fontSize: '13px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase' }}>Diagnosis</h4>
                             <p style={{ fontSize: '15px', color: '#0f172a', fontWeight: '600', marginTop: '2px' }}>{visit.diagnosis}</p>
+                            
+                            <div style={{ display: 'flex', gap: '16px', marginTop: '8px', background: '#f1f5f9', padding: '6px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: '700' }}>
+                              <span style={{ color: '#2563eb' }}>💊 {visit.medicineDays || 2} Days Medication</span>
+                              {visit.bandageCount > 0 && <span style={{ color: '#d97706' }}>🩹 {visit.bandageCount} Bandage(s)</span>}
+                              {visit.testCount > 0 && <span style={{ color: '#7c3aed' }}>🧪 {visit.testCount} Test(s)</span>}
+                            </div>
+
                             {visit.notes && (
                               <p style={{ fontSize: '13px', color: '#475569', marginTop: '6px', background: '#fffbeb', padding: '8px 12px', borderRadius: '6px', border: '1px solid #fef3c7' }}>
                                 <strong>Notes:</strong> {visit.notes}
@@ -1356,7 +1445,7 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL: New Visit */}
+      {/* MODAL: New Visit with Bandage, Tests & Auto-detected Medicine Days */}
       {showAddVisitModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.6)', backdropFilter: 'blur(2px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}>
           <div style={{ background: '#fff', padding: '28px', borderRadius: '16px', width: '740px', maxWidth: '95%', maxHeight: '92vh', overflowY: 'auto' }}>
@@ -1386,6 +1475,42 @@ export default function App() {
                 </div>
               </div>
 
+              {/* Bandage & Tests Box */}
+              <div style={{ background: '#eff6ff', border: '1.5px solid #bfdbfe', padding: '14px', borderRadius: '10px' }}>
+                <label style={{ fontSize: '12px', fontWeight: '800', color: '#1e3a8a', display: 'block', marginBottom: '8px' }}>
+                  Register Entry Details (Procedures & Tests)
+                </label>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                  <div>
+                    <span style={{ fontSize: '11px', fontWeight: '700', color: '#334155', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <Bandage size={14} color="#d97706" /> Bandage Applied:
+                    </span>
+                    <input
+                      type="number"
+                      min="0"
+                      value={bandageCount}
+                      onChange={e => setBandageCount(e.target.value)}
+                      placeholder="0"
+                      style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1', marginTop: '4px', fontWeight: '700' }}
+                    />
+                  </div>
+                  <div>
+                    <span style={{ fontSize: '11px', fontWeight: '700', color: '#334155', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <FlaskConical size={14} color="#7c3aed" /> Analyzer / Tests Conducted:
+                    </span>
+                    <input
+                      type="number"
+                      min="0"
+                      value={testCount}
+                      onChange={e => setTestCount(e.target.value)}
+                      placeholder="0"
+                      style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1', marginTop: '4px', fontWeight: '700' }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Vitals */}
               <div style={{ background: '#f8fafc', padding: '14px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
                 <label style={{ fontSize: '12px', fontWeight: '800', color: '#334155', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }}>
                   <HeartPulse size={15} color="#dc2626" /> Patient Vitals (Optional)
@@ -1404,7 +1529,7 @@ export default function App() {
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Acute Upper Respiratory Tract Infection"
+                  placeholder="e.g. Acute Gastritis, Upper Respiratory Infection"
                   value={visitDiagnosis}
                   onChange={e => setVisitDiagnosis(e.target.value)}
                   style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #cbd5e1', marginTop: '4px' }}
@@ -1415,16 +1540,22 @@ export default function App() {
                 <label style={{ fontSize: '12px', fontWeight: '700', color: '#475569' }}>Doctor's Clinical Notes</label>
                 <textarea
                   rows="2"
-                  placeholder="e.g. Advised complete bed rest for 3 days..."
+                  placeholder="e.g. Advised rest, avoid spicy food..."
                   value={visitNotes}
                   onChange={e => setVisitNotes(e.target.value)}
                   style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #cbd5e1', marginTop: '4px' }}
                 />
               </div>
 
+              {/* Prescription with Auto-detected Medicine Days */}
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                  <label style={{ fontSize: '13px', fontWeight: '800', color: '#0f172a' }}>Prescription (Rx)</label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <label style={{ fontSize: '13px', fontWeight: '800', color: '#0f172a' }}>Prescription (Rx)</label>
+                    <span style={{ fontSize: '11px', background: '#dcfce7', color: '#15803d', padding: '2px 8px', borderRadius: '4px', fontWeight: '700' }}>
+                      Auto-detected Course: {calculatedMedicineDays} Days
+                    </span>
+                  </div>
                   <button
                     type="button"
                     onClick={addMedicineRow}
@@ -1438,7 +1569,7 @@ export default function App() {
                   <div key={index} style={{ display: 'flex', gap: '8px', marginBottom: '8px', alignItems: 'center' }}>
                     <input
                       type="text"
-                      placeholder="Medicine Name (e.g. Panadol 500mg)"
+                      placeholder="Medicine Name (e.g. Belladonna 30, Panadol)"
                       value={med.name}
                       onChange={e => updateMedicine(index, 'name', e.target.value)}
                       style={{ flex: 2.2, padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px' }}
@@ -1456,10 +1587,10 @@ export default function App() {
                     </select>
                     <input
                       type="text"
-                      placeholder="Duration"
+                      placeholder="Duration (e.g. 2 Days)"
                       value={med.duration}
                       onChange={e => updateMedicine(index, 'duration', e.target.value)}
-                      style={{ flex: 1, padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px' }}
+                      style={{ flex: 1.1, padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px' }}
                     />
                     <select
                       value={med.instructions}
@@ -1606,7 +1737,12 @@ export default function App() {
               <h3 style={{ fontSize: '15px', fontWeight: 'bold', margin: '0 0 4px', color: '#1e3a8a' }}>
                 {printVisit.location === 'Hospital' ? doctorProfile.hospitalName : doctorProfile.clinicName}
               </h3>
-              <p style={{ margin: '2px 0' }}>{doctorProfile.clinicAddress}</p>
+              <p style={{ margin: '2px 0' }}>
+                {printVisit.location === 'Hospital' ? doctorProfile.hospitalAddress || doctorProfile.clinicAddress : doctorProfile.clinicAddress}
+              </p>
+              <p style={{ margin: '2px 0', color: '#2563eb', fontWeight: 'bold' }}>
+                {printVisit.location === 'Hospital' ? doctorProfile.hospitalTiming : doctorProfile.clinicTiming}
+              </p>
               <p style={{ margin: '2px 0' }}><strong>Tel:</strong> {doctorProfile.contactNumber}</p>
             </div>
           </div>
