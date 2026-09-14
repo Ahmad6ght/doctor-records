@@ -542,15 +542,15 @@ export default function App() {
         backgroundRepeat: 'no-repeat'
       }}>
         <div style={{ 
-          background: 'rgba(255, 255, 255, 0.82)', 
-          backdropFilter: 'blur(14px)',
-          WebkitBackdropFilter: 'blur(14px)',
-          border: '1px solid rgba(255, 255, 255, 0.65)',
+          background: 'rgba(255, 255, 255, 0.35)',
+          backdropFilter: 'blur(6px)',
+          WebkitBackdropFilter: 'blur(6px)',
+          border: '1.5px solid rgba(255, 255, 255, 0.7)',
           borderRadius: '24px', 
           width: '100%', 
           maxWidth: '430px', 
           padding: '36px 32px', 
-          boxShadow: '0 25px 50px -12px rgba(15, 23, 42, 0.35)' 
+          boxShadow: '0 20px 40px rgba(0, 0, 0, 0.2)' 
         }}>
           <div style={{ textAlign: 'center', marginBottom: '24px' }}>
             <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: '10px' }}>
@@ -586,12 +586,12 @@ export default function App() {
                     width: '100%', 
                     padding: '11px 12px 11px 38px', 
                     borderRadius: '10px', 
-                    border: '1px solid rgba(203, 213, 225, 0.9)', 
+                    border: '1px solid rgba(255, 255, 255, 0.8)', 
                     fontSize: '14px', 
                     outline: 'none',
-                    background: 'rgba(255, 255, 255, 0.92)',
+                    background: 'rgba(255, 255, 255, 0.55)',
                     color: '#0f172a',
-                    fontWeight: '500'
+                    fontWeight: '600'
                   }}
                 />
               </div>
@@ -611,11 +611,12 @@ export default function App() {
                     width: '100%', 
                     padding: '11px 12px 11px 38px', 
                     borderRadius: '10px', 
-                    border: '1px solid rgba(203, 213, 225, 0.9)', 
+                    border: '1px solid rgba(255, 255, 255, 0.8)', 
                     fontSize: '14px', 
                     outline: 'none',
-                    background: 'rgba(255, 255, 255, 0.92)',
-                    color: '#0f172a'
+                    background: 'rgba(255, 255, 255, 0.55)',
+                    color: '#0f172a',
+                    fontWeight: '600'
                   }}
                 />
               </div>
