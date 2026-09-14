@@ -530,18 +530,42 @@ export default function App() {
   // LOGIN SCREEN (If not authenticated)
   if (!currentUser) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)', padding: '20px' }}>
-        <div style={{ background: '#ffffff', borderRadius: '20px', width: '100%', maxWidth: '420px', padding: '36px 32px', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.3), 0 8px 10px -6px rgba(0,0,0,0.3)' }}>
-          <div style={{ textAlign: 'center', marginBottom: '28px' }}>
-            <div style={{ display: 'inline-flex', background: 'linear-gradient(135deg, #2563eb, #1d4ed8)', padding: '16px', borderRadius: '16px', color: '#fff', marginBottom: '14px', boxShadow: '0 4px 12px rgba(37,99,235,0.3)' }}>
-              <Stethoscope size={32} />
+      <div style={{ 
+        display: 'flex', 
+        alignItems: 'center', 
+        justifyContent: 'center', 
+        minHeight: '100vh', 
+        padding: '20px',
+        backgroundImage: `url('/login-bg.png')`,
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        backgroundRepeat: 'no-repeat'
+      }}>
+        <div style={{ 
+          background: 'rgba(255, 255, 255, 0.82)', 
+          backdropFilter: 'blur(14px)',
+          WebkitBackdropFilter: 'blur(14px)',
+          border: '1px solid rgba(255, 255, 255, 0.65)',
+          borderRadius: '24px', 
+          width: '100%', 
+          maxWidth: '430px', 
+          padding: '36px 32px', 
+          boxShadow: '0 25px 50px -12px rgba(15, 23, 42, 0.35)' 
+        }}>
+          <div style={{ textAlign: 'center', marginBottom: '24px' }}>
+            <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: '10px' }}>
+              <img 
+                src="/logo.png" 
+                alt="ClinicCare Logo" 
+                style={{ width: '130px', height: 'auto', objectFit: 'contain' }} 
+              />
             </div>
-            <h1 style={{ fontSize: '22px', fontWeight: '800', color: '#0f172a', margin: 0 }}>Doctor's Portal Login</h1>
-            <p style={{ fontSize: '13px', color: '#64748b', marginTop: '6px' }}>Secure Electronic Health Records & Register</p>
+            <h1 style={{ fontSize: '22px', fontWeight: '800', color: '#0f172a', margin: '4px 0 0' }}>Doctor's Portal Login</h1>
+            <p style={{ fontSize: '13px', color: '#475569', marginTop: '4px', fontWeight: '500' }}>Secure Electronic Health Records & Register</p>
           </div>
 
           {loginError && (
-            <div style={{ background: '#fef2f2', border: '1px solid #fecaca', padding: '10px 14px', borderRadius: '10px', color: '#dc2626', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px' }}>
+            <div style={{ background: '#fef2f2', border: '1px solid #fecaca', padding: '10px 14px', borderRadius: '10px', color: '#dc2626', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '18px' }}>
               <AlertCircle size={16} />
               <span>{loginError}</span>
             </div>
@@ -549,31 +573,50 @@ export default function App() {
 
           <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             <div>
-              <label style={{ fontSize: '12px', fontWeight: '700', color: '#334155', display: 'block', marginBottom: '6px' }}>Doctor ID / Email</label>
+              <label style={{ fontSize: '12px', fontWeight: '700', color: '#1e293b', display: 'block', marginBottom: '6px' }}>Doctor ID / Email</label>
               <div style={{ position: 'relative' }}>
-                <Mail size={16} style={{ position: 'absolute', left: '12px', top: '13px', color: '#94a3b8' }} />
+                <Mail size={16} style={{ position: 'absolute', left: '12px', top: '13px', color: '#64748b' }} />
                 <input
                   type="email"
                   required
                   placeholder="doctor@clinic.com"
                   value={loginEmail}
                   onChange={(e) => setLoginEmail(e.target.value)}
-                  style={{ width: '100%', padding: '10px 12px 10px 38px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '14px', outline: 'none' }}
+                  style={{ 
+                    width: '100%', 
+                    padding: '11px 12px 11px 38px', 
+                    borderRadius: '10px', 
+                    border: '1px solid rgba(203, 213, 225, 0.9)', 
+                    fontSize: '14px', 
+                    outline: 'none',
+                    background: 'rgba(255, 255, 255, 0.92)',
+                    color: '#0f172a',
+                    fontWeight: '500'
+                  }}
                 />
               </div>
             </div>
 
             <div>
-              <label style={{ fontSize: '12px', fontWeight: '700', color: '#334155', display: 'block', marginBottom: '6px' }}>Password</label>
+              <label style={{ fontSize: '12px', fontWeight: '700', color: '#1e293b', display: 'block', marginBottom: '6px' }}>Password</label>
               <div style={{ position: 'relative' }}>
-                <Lock size={16} style={{ position: 'absolute', left: '12px', top: '13px', color: '#94a3b8' }} />
+                <Lock size={16} style={{ position: 'absolute', left: '12px', top: '13px', color: '#64748b' }} />
                 <input
                   type="password"
                   required
                   placeholder="••••••••"
                   value={loginPassword}
                   onChange={(e) => setLoginPassword(e.target.value)}
-                  style={{ width: '100%', padding: '10px 12px 10px 38px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '14px', outline: 'none' }}
+                  style={{ 
+                    width: '100%', 
+                    padding: '11px 12px 11px 38px', 
+                    borderRadius: '10px', 
+                    border: '1px solid rgba(203, 213, 225, 0.9)', 
+                    fontSize: '14px', 
+                    outline: 'none',
+                    background: 'rgba(255, 255, 255, 0.92)',
+                    color: '#0f172a'
+                  }}
                 />
               </div>
             </div>
@@ -584,14 +627,14 @@ export default function App() {
               style={{
                 background: '#2563eb', color: '#fff', padding: '12px', borderRadius: '10px', border: 'none',
                 fontWeight: '700', fontSize: '14px', cursor: isLoggingIn ? 'not-allowed' : 'pointer',
-                opacity: isLoggingIn ? 0.8 : 1, marginTop: '8px', boxShadow: '0 4px 6px -1px rgba(37,99,235,0.2)'
+                opacity: isLoggingIn ? 0.8 : 1, marginTop: '8px', boxShadow: '0 4px 10px rgba(37, 99, 235, 0.35)'
               }}
             >
               {isLoggingIn ? 'Authenticating...' : 'Sign In to Records'}
             </button>
           </form>
 
-          <div style={{ marginTop: '24px', textAlign: 'center', borderTop: '1px solid #f1f5f9', paddingTop: '16px', fontSize: '11px', color: '#94a3b8' }}>
+          <div style={{ marginTop: '22px', textAlign: 'center', borderTop: '1px solid rgba(226, 232, 240, 0.8)', paddingTop: '14px', fontSize: '11px', color: '#64748b', fontWeight: '600' }}>
             Protected Medical Portal • Encrypted Database Access
           </div>
         </div>
