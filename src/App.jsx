@@ -1,5 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { db } from './firebase';
+import { db, auth } from './firebase';
+import { 
+  signInWithEmailAndPassword, 
+  signOut, 
+  onAuthStateChanged 
+} from 'firebase/auth';
 import { 
   collection, 
   addDoc, 
@@ -15,10 +20,20 @@ import {
   Search, Plus, User, Hospital, Pill, Calendar, Phone, Trash2, 
   Printer, Edit3, HeartPulse, Stethoscope, Building2, LayoutDashboard,
   Users, Activity, Settings, Image as ImageIcon, Save, CheckCircle2,
-  ShieldAlert, ArrowUpRight, Award, MapPin, BarChart3, FlaskConical, Bandage, Clock
+  ShieldAlert, ArrowUpRight, Award, MapPin, BarChart3, FlaskConical, Bandage, Clock,
+  LogOut, Lock, Mail, AlertCircle
 } from 'lucide-react';
 
 export default function App() {
+  // Authentication State
+  const [currentUser, setCurrentUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [loginError, setLoginError] = useState('');
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+
+  // App Views
   const [currentView, setCurrentView] = useState('dashboard');
   
   const [patients, setPatients] = useState([]);
@@ -28,7 +43,7 @@ export default function App() {
   const [filterLocation, setFilterLocation] = useState('All');
 
   // Reports view controls
-  const [reportPeriod, setReportPeriod] = useState('thisMonth'); // thisWeek | lastWeek | thisMonth | thisYear | customMonth
+  const [reportPeriod, setReportPeriod] = useState('thisMonth');
   const [reportFacility, setReportFacility] = useState('Hospital');
   const [customMonthValue, setCustomMonthValue] = useState(() => {
     const now = new Date();
@@ -70,6 +85,46 @@ export default function App() {
     { name: '', dosage: '1-0-1', duration: '2 Days', instructions: 'After Meals' }
   ]);
 
+  // Listen to Auth state changes
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setCurrentUser(user);
+      setAuthLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Handle Login
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setLoginError('');
+    setIsLoggingIn(true);
+    try {
+      await signInWithEmailAndPassword(auth, loginEmail, loginPassword);
+      setLoginEmail('');
+      setLoginPassword('');
+    } catch (err) {
+      if (err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password' || err.code === 'auth/user-not-found') {
+        setLoginError('Invalid email or password. Please try again.');
+      } else {
+        setLoginError(err.message);
+      }
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
+  // Handle Logout
+  const handleLogout = async () => {
+    if (window.confirm('Are you sure you want to log out?')) {
+      try {
+        await signOut(auth);
+      } catch (err) {
+        alert('Logout error: ' + err.message);
+      }
+    }
+  };
+
   const parseDaysFromDuration = (durStr) => {
     if (!durStr) return 0;
     const match = String(durStr).match(/\d+/);
@@ -87,7 +142,13 @@ export default function App() {
     return maxDays > 0 ? maxDays : 2;
   }, [medicines]);
 
+  // Firestore Sync - only run if logged in
   useEffect(() => {
+    if (!currentUser) {
+      setPatients([]);
+      return;
+    }
+
     const unsubscribe = onSnapshot(collection(db, 'patients'), (snapshot) => {
       const patientList = snapshot.docs.map(doc => ({
         id: doc.id,
@@ -104,9 +165,10 @@ export default function App() {
     });
 
     return () => unsubscribe();
-  }, [selectedPatient?.id]);
+  }, [currentUser, selectedPatient?.id]);
 
   useEffect(() => {
+    if (!currentUser) return;
     const unsubSettings = onSnapshot(doc(db, 'settings', 'doctor_profile'), (docSnap) => {
       if (docSnap.exists()) {
         setDoctorProfile(prev => ({
@@ -116,7 +178,7 @@ export default function App() {
       }
     });
     return () => unsubSettings();
-  }, []);
+  }, [currentUser]);
 
   const handleSaveSettings = async (e) => {
     e.preventDefault();
@@ -154,7 +216,7 @@ export default function App() {
   const hospitalVisits = allVisits.filter(v => v.location === 'Hospital');
   const clinicVisits = allVisits.filter(v => v.location === 'Clinic');
 
-  // Reports data calculation for Week, Month, Year, and Custom Range
+  // Reports data calculation
   const reportData = useMemo(() => {
     const now = new Date();
     const mkDate = (y, m, d) => new Date(y, m, d);
@@ -177,7 +239,6 @@ export default function App() {
       start = mkDate(yy, mm - 1, 1);
       end = mkDate(yy, mm, 1);
     } else {
-      // thisMonth (default)
       start = mkDate(now.getFullYear(), now.getMonth(), 1);
       end = mkDate(now.getFullYear(), now.getMonth() + 1, 1);
     }
@@ -250,7 +311,6 @@ export default function App() {
       };
     });
 
-    // Buckets for dynamic Line Chart Trend
     let buckets = [];
     if (reportPeriod === 'thisWeek' || reportPeriod === 'lastWeek') {
       const labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -451,11 +511,95 @@ export default function App() {
 
   const lineChartData = buildSvgLine(reportData.buckets, 780, 180, 45, 20);
 
-  // Active facility timing display
   const activeTiming = reportFacility === 'Clinic' 
     ? (doctorProfile.clinicTiming || 'EVENING 6 PM TO 10 PM')
     : (doctorProfile.hospitalTiming || 'OPD MORNING 9 AM TO 1 PM');
 
+  // Loading spinner while checking authentication
+  if (authLoading) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#f8fafc', flexDirection: 'column', gap: '16px' }}>
+        <div style={{ background: '#2563eb', padding: '16px', borderRadius: '16px', color: '#fff', boxShadow: '0 4px 12px rgba(37,99,235,0.25)' }}>
+          <Stethoscope size={36} />
+        </div>
+        <p style={{ color: '#64748b', fontSize: '14px', fontWeight: '600' }}>Verifying Doctor Credentials...</p>
+      </div>
+    );
+  }
+
+  // LOGIN SCREEN (If not authenticated)
+  if (!currentUser) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)', padding: '20px' }}>
+        <div style={{ background: '#ffffff', borderRadius: '20px', width: '100%', maxWidth: '420px', padding: '36px 32px', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.3), 0 8px 10px -6px rgba(0,0,0,0.3)' }}>
+          <div style={{ textAlign: 'center', marginBottom: '28px' }}>
+            <div style={{ display: 'inline-flex', background: 'linear-gradient(135deg, #2563eb, #1d4ed8)', padding: '16px', borderRadius: '16px', color: '#fff', marginBottom: '14px', boxShadow: '0 4px 12px rgba(37,99,235,0.3)' }}>
+              <Stethoscope size={32} />
+            </div>
+            <h1 style={{ fontSize: '22px', fontWeight: '800', color: '#0f172a', margin: 0 }}>Doctor's Portal Login</h1>
+            <p style={{ fontSize: '13px', color: '#64748b', marginTop: '6px' }}>Secure Electronic Health Records & Register</p>
+          </div>
+
+          {loginError && (
+            <div style={{ background: '#fef2f2', border: '1px solid #fecaca', padding: '10px 14px', borderRadius: '10px', color: '#dc2626', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px' }}>
+              <AlertCircle size={16} />
+              <span>{loginError}</span>
+            </div>
+          )}
+
+          <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div>
+              <label style={{ fontSize: '12px', fontWeight: '700', color: '#334155', display: 'block', marginBottom: '6px' }}>Doctor ID / Email</label>
+              <div style={{ position: 'relative' }}>
+                <Mail size={16} style={{ position: 'absolute', left: '12px', top: '13px', color: '#94a3b8' }} />
+                <input
+                  type="email"
+                  required
+                  placeholder="doctor@clinic.com"
+                  value={loginEmail}
+                  onChange={(e) => setLoginEmail(e.target.value)}
+                  style={{ width: '100%', padding: '10px 12px 10px 38px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '14px', outline: 'none' }}
+                />
+              </div>
+            </div>
+
+            <div>
+              <label style={{ fontSize: '12px', fontWeight: '700', color: '#334155', display: 'block', marginBottom: '6px' }}>Password</label>
+              <div style={{ position: 'relative' }}>
+                <Lock size={16} style={{ position: 'absolute', left: '12px', top: '13px', color: '#94a3b8' }} />
+                <input
+                  type="password"
+                  required
+                  placeholder="••••••••"
+                  value={loginPassword}
+                  onChange={(e) => setLoginPassword(e.target.value)}
+                  style={{ width: '100%', padding: '10px 12px 10px 38px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '14px', outline: 'none' }}
+                />
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={isLoggingIn}
+              style={{
+                background: '#2563eb', color: '#fff', padding: '12px', borderRadius: '10px', border: 'none',
+                fontWeight: '700', fontSize: '14px', cursor: isLoggingIn ? 'not-allowed' : 'pointer',
+                opacity: isLoggingIn ? 0.8 : 1, marginTop: '8px', boxShadow: '0 4px 6px -1px rgba(37,99,235,0.2)'
+              }}
+            >
+              {isLoggingIn ? 'Authenticating...' : 'Sign In to Records'}
+            </button>
+          </form>
+
+          <div style={{ marginTop: '24px', textAlign: 'center', borderTop: '1px solid #f1f5f9', paddingTop: '16px', fontSize: '11px', color: '#94a3b8' }}>
+            Protected Medical Portal • Encrypted Database Access
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // MAIN AUTHENTICATED PORTAL
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#f8fafc' }}>
       
@@ -488,7 +632,7 @@ export default function App() {
         }
       `}</style>
 
-      {/* 1. TOP NAVBAR */}
+      {/* 1. TOP NAVBAR WITH LOGOUT BUTTON */}
       <header className="no-print" style={{
         background: '#ffffff',
         borderBottom: '1px solid #e2e8f0',
@@ -572,28 +716,43 @@ export default function App() {
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', background: '#f1f5f9', padding: '4px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+        {/* Location Switcher & Logout */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', background: '#f1f5f9', padding: '4px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+            <button
+              onClick={() => { setCurrentWorkplace('Hospital'); setReportFacility('Hospital'); }}
+              style={{
+                padding: '8px 16px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontWeight: '700', fontSize: '13px',
+                display: 'flex', alignItems: 'center', gap: '6px',
+                background: currentWorkplace === 'Hospital' ? '#2563eb' : 'transparent',
+                color: currentWorkplace === 'Hospital' ? '#ffffff' : '#64748b'
+              }}
+            >
+              <Hospital size={16} /> Hospital Mode
+            </button>
+            <button
+              onClick={() => { setCurrentWorkplace('Clinic'); setReportFacility('Clinic'); }}
+              style={{
+                padding: '8px 16px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontWeight: '700', fontSize: '13px',
+                display: 'flex', alignItems: 'center', gap: '6px',
+                background: currentWorkplace === 'Clinic' ? '#059669' : 'transparent',
+                color: currentWorkplace === 'Clinic' ? '#ffffff' : '#64748b'
+              }}
+            >
+              <Building2 size={16} /> Clinic Mode
+            </button>
+          </div>
+
           <button
-            onClick={() => { setCurrentWorkplace('Hospital'); setReportFacility('Hospital'); }}
+            onClick={handleLogout}
+            title="Sign Out"
             style={{
-              padding: '8px 16px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontWeight: '700', fontSize: '13px',
-              display: 'flex', alignItems: 'center', gap: '6px',
-              background: currentWorkplace === 'Hospital' ? '#2563eb' : 'transparent',
-              color: currentWorkplace === 'Hospital' ? '#ffffff' : '#64748b'
+              padding: '8px 14px', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#fff',
+              cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px',
+              fontWeight: '700', color: '#ef4444'
             }}
           >
-            <Hospital size={16} /> Hospital Mode
-          </button>
-          <button
-            onClick={() => { setCurrentWorkplace('Clinic'); setReportFacility('Clinic'); }}
-            style={{
-              padding: '8px 16px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontWeight: '700', fontSize: '13px',
-              display: 'flex', alignItems: 'center', gap: '6px',
-              background: currentWorkplace === 'Clinic' ? '#059669' : 'transparent',
-              color: currentWorkplace === 'Clinic' ? '#ffffff' : '#64748b'
-            }}
-          >
-            <Building2 size={16} /> Clinic Mode
+            <LogOut size={16} /> Logout
           </button>
         </div>
       </header>
@@ -673,7 +832,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* HOSPITAL / DISPENSARY CONFIGURATION */}
               <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '14px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 <h3 style={{ fontSize: '13px', fontWeight: '800', color: '#1e40af', display: 'flex', alignItems: 'center', gap: '6px', margin: 0 }}>
                   <Hospital size={16} /> Hospital / Free Dispensary Settings
@@ -711,7 +869,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* CLINIC CONFIGURATION */}
               <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '14px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 <h3 style={{ fontSize: '13px', fontWeight: '800', color: '#065f46', display: 'flex', alignItems: 'center', gap: '6px', margin: 0 }}>
                   <Building2 size={16} /> Private Clinic Settings
@@ -779,7 +936,6 @@ export default function App() {
         <div style={{ flex: 1, overflowY: 'auto', padding: '28px' }}>
           <div style={{ maxWidth: '1180px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '20px' }}>
 
-            {/* Top Controls & Print */}
             <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
               <div>
                 <h2 style={{ fontSize: '22px', fontWeight: '800', color: '#0f172a' }}>Official Register & Reports</h2>
@@ -789,7 +945,6 @@ export default function App() {
               </div>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                {/* Facility Selector */}
                 <div style={{ display: 'flex', background: '#f1f5f9', padding: '4px', borderRadius: '8px', gap: '4px' }}>
                   {['Hospital', 'Clinic', 'All'].map(loc => (
                     <button
@@ -807,7 +962,6 @@ export default function App() {
                   ))}
                 </div>
 
-                {/* Restored Complete Timeframe Selector */}
                 <select
                   value={reportPeriod}
                   onChange={(e) => setReportPeriod(e.target.value)}
@@ -843,7 +997,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* SCREEN ONLY: Summary Metric Cards */}
             <div className="no-print" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
               <div style={{ background: '#fff', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
                 <span style={{ fontSize: '12px', color: '#64748b', fontWeight: '600' }}>Total Patients</span>
@@ -867,7 +1020,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* SCREEN ONLY: Volume Trend Graph */}
             <div className="no-print" style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px' }}>
               <h3 style={{ fontSize: '15px', fontWeight: '800', color: '#0f172a', marginBottom: '12px' }}>
                 Patient Inflow Trend — {reportData.displayTitle} ({reportFacility})
@@ -891,12 +1043,8 @@ export default function App() {
               </svg>
             </div>
 
-            {/* ------------------------------------------------------------- */}
-            {/* OFFICIAL REGISTER SHEET WITH LETTERHEAD (SCREEN & PRINT)      */}
-            {/* ------------------------------------------------------------- */}
+            {/* OFFICIAL REGISTER SHEET WITH LETTERHEAD (SCREEN & PRINT) */}
             <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #cbd5e1', padding: '20px' }}>
-              
-              {/* Top Letterhead Header */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '2.5px solid #1e3a8a', paddingBottom: '12px', marginBottom: '12px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
                   {doctorProfile.logoUrl && (
@@ -926,7 +1074,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Sub-strip: Dynamic Timing & Title */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', padding: '6px 10px', border: '1px solid #e2e8f0', marginBottom: '10px' }}>
                 <span style={{ fontSize: '13px', fontWeight: '800', color: '#1e3a8a' }}>
                   {reportData.displayTitle}
@@ -939,7 +1086,6 @@ export default function App() {
                 </span>
               </div>
 
-              {/* Exact Register Columns Table */}
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px', textAlign: 'center', border: '1.5px solid #000' }}>
                 <thead>
                   <tr style={{ background: '#f1f5f9', borderBottom: '1.5px solid #000' }}>
@@ -959,17 +1105,14 @@ export default function App() {
                       background: row.isFriday ? '#f8fafc' : 'transparent',
                       height: '20px'
                     }}>
-                      {/* Date */}
                       <td style={{ borderRight: '1px solid #000', padding: '2px 4px', fontWeight: '600' }}>
                         {row.dateStr}
                       </td>
 
-                      {/* Day */}
                       <td style={{ borderRight: '1px solid #000', padding: '2px 4px', fontWeight: row.isFriday ? '800' : '500' }}>
                         {row.dayOfWeek}
                       </td>
 
-                      {/* If Friday -> span "Weekly Off" */}
                       {row.isFriday ? (
                         <>
                           <td style={{ borderRight: '1px solid #000', padding: '2px 4px', fontStyle: 'italic', fontWeight: 'bold', letterSpacing: '2px' }} colSpan={2}>
@@ -994,15 +1137,12 @@ export default function App() {
                           <td style={{ borderRight: '1px solid #000', padding: '2px 4px' }}>
                             {row.tests > 0 ? String(row.tests).padStart(2, '0') : ''}
                           </td>
-                          <td style={{ padding: '2px 4px' }}>
-                            {/* Blank for handwriting */}
-                          </td>
+                          <td style={{ padding: '2px 4px' }}></td>
                         </>
                       )}
                     </tr>
                   ))}
 
-                  {/* BOTTOM TOTAL SUMMARY ROW */}
                   <tr style={{ borderTop: '2px solid #000', fontWeight: '900', background: '#f1f5f9', height: '28px', fontSize: '12px' }}>
                     <td style={{ borderRight: '1px solid #000', padding: '4px' }} colSpan={2}>
                       TOTAL
@@ -1028,7 +1168,6 @@ export default function App() {
                 <span>Official OPD Register Sheet • Generated via Doctor's Record System</span>
                 <span>Authorized Signature: __________________________</span>
               </div>
-
             </div>
 
           </div>
@@ -1445,7 +1584,7 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL: New Visit with Bandage, Tests & Auto-detected Medicine Days */}
+      {/* MODAL: New Visit */}
       {showAddVisitModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.6)', backdropFilter: 'blur(2px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}>
           <div style={{ background: '#fff', padding: '28px', borderRadius: '16px', width: '740px', maxWidth: '95%', maxHeight: '92vh', overflowY: 'auto' }}>

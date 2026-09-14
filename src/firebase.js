@@ -1,18 +1,17 @@
-import { initializeApp } from "firebase/app";
-import { getFirestore } from "firebase/firestore";
+import { initializeApp } from 'firebase/app';
+import { getFirestore } from 'firebase/firestore';
+import { getAuth } from 'firebase/auth';
 
+// Your existing Firebase configuration
 const firebaseConfig = {
-  apiKey: "AIzaSyDb2WXV3pQOmDC09ShWoJInLHaB-ci7Lwg",
-  authDomain: "bs-clienic.firebaseapp.com",
-  projectId: "bs-clienic",
-  storageBucket: "bs-clienic.firebasestorage.app",
-  messagingSenderId: "301174034800",
-  appId: "1:301174034800:web:da6b1e76644faf044a3fb5",
-  measurementId: "G-9JX8TGXQ7E"
+  apiKey: "YOUR_API_KEY",
+  authDomain: "YOUR_AUTH_DOMAIN",
+  projectId: "YOUR_PROJECT_ID",
+  storageBucket: "YOUR_STORAGE_BUCKET",
+  messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
+  appId: "YOUR_APP_ID"
 };
 
-// Initialize Firebase
 const app = initializeApp(firebaseConfig);
-
-// Initialize Cloud Firestore and export it
 export const db = getFirestore(app);
+export const auth = getAuth(app);
