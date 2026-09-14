@@ -3,7 +3,7 @@ import { getFirestore } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 
 const firebaseConfig = {
-  apiKey: "AIzaSy...", // <-- Paste your actual key from the Firebase settings here
+  apiKey: "AIzaSyDb2WXV3pQOmDC09ShWoJInlHaB-ci7LWg", // <-- Paste your actual key from the Firebase settings here
   authDomain: "bs-clienic.firebaseapp.com",
   projectId: "bs-clienic",
   storageBucket: "bs-clienic.appspot.com",
